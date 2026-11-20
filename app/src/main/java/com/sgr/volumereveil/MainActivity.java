@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
@@ -61,6 +62,9 @@ public class MainActivity extends Activity {
             refresh();
         });
         root.addView(sw);
+
+        root.addView(checkbox("Pas le week-end (samedi, dimanche)", VolumeLogic.K_SKIP_WE));
+        root.addView(checkbox("Pas les jours fériés", VolumeLogic.K_SKIP_FERIE));
 
         addSlider("Volume sonnerie", VolumeLogic.K_RING,
                 audio.getStreamMaxVolume(AudioManager.STREAM_RING), 0, "");
@@ -151,9 +155,12 @@ public class MainActivity extends Activity {
         sb.append("Prochain réveil : ")
                 .append(next == null ? "aucun réveil programmé" : f.format(new Date(next.getTriggerTime())));
         long sched = prefs.getLong(VolumeLogic.K_SCHEDULED, 0);
-        sb.append("\nRemise du volume prévue : ")
-                .append(sched == 0 ? (prefs.getBoolean(VolumeLogic.K_ENABLED, true) ? "—" : "désactivée")
-                        : f.format(new Date(sched)));
+        String prevu;
+        if (!prefs.getBoolean(VolumeLogic.K_ENABLED, true)) prevu = "désactivée";
+        else if (sched != 0) prevu = f.format(new Date(sched));
+        else if (prefs.getLong(VolumeLogic.K_SKIPPED, 0) != 0) prevu = "aucune (week-end ou jour férié)";
+        else prevu = "—";
+        sb.append("\nRemise du volume prévue : ").append(prevu);
         long last = prefs.getLong(VolumeLogic.K_LAST, 0);
         sb.append("\nDernière remise : ").append(last == 0 ? "jamais" : f.format(new Date(last)));
         status.setText(sb.toString());
@@ -162,6 +169,18 @@ public class MainActivity extends Activity {
         btnExact.setVisibility(exactOk ? View.GONE : View.VISIBLE);
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         btnDnd.setVisibility(nm.isNotificationPolicyAccessGranted() ? View.GONE : View.VISIBLE);
+    }
+
+    private CheckBox checkbox(String label, String key) {
+        CheckBox cb = new CheckBox(this);
+        cb.setText(label);
+        cb.setTextSize(16);
+        cb.setChecked(prefs.getBoolean(key, true));
+        cb.setOnCheckedChangeListener((v, on) -> {
+            prefs.edit().putBoolean(key, on).apply();
+            refresh();
+        });
+        return cb;
     }
 
     private TextView text(String s, int size) {

@@ -22,6 +22,25 @@ public final class VolumeLogic {
     static final String K_SCHEDULED = "prevuA";
     static final String K_FOR_ALARM = "pourReveilDe";
     static final String K_LAST = "derniereRemise";
+    static final String K_SKIP_WE = "pasWeekend";
+    static final String K_SKIP_FERIE = "pasFeries";
+    static final String K_SKIPPED = "reveilIgnore";
+    public static final String ACTION_RECHECK = "com.sgr.volumereveil.RECHECK";
+
+    /** Vrai si la remise du volume doit être sautée pour un réveil à cette heure-là. */
+    static boolean jourIgnore(Context c, long alarmAt) {
+        SharedPreferences p = prefs(c);
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.setTimeInMillis(alarmAt);
+        return (p.getBoolean(K_SKIP_WE, true) && JoursOff.estWeekend(cal))
+                || (p.getBoolean(K_SKIP_FERIE, true) && JoursOff.estFerie(cal));
+    }
+
+    private static PendingIntent recheckIntent(Context c) {
+        Intent i = new Intent(c, RestoreReceiver.class).setAction(ACTION_RECHECK);
+        return PendingIntent.getBroadcast(c, 2, i,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
 
     private VolumeLogic() {}
 
@@ -71,13 +90,21 @@ public final class VolumeLogic {
         }
 
         am.cancel(restoreIntent(c));
-        p.edit().remove(K_SCHEDULED).remove(K_FOR_ALARM).apply();
+        am.cancel(recheckIntent(c));
+        p.edit().remove(K_SCHEDULED).remove(K_FOR_ALARM).remove(K_SKIPPED).apply();
         if (!p.getBoolean(K_ENABLED, true)) return;
 
         AlarmManager.AlarmClockInfo next = am.getNextAlarmClock();
         if (next == null) return;
 
         long alarmAt = next.getTriggerTime();
+        if (jourIgnore(c, alarmAt)) {
+            // Week-end / férié : pas de remise. On revérifie juste après ce réveil
+            // pour programmer le suivant.
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, alarmAt + 60_000L, recheckIntent(c));
+            p.edit().putLong(K_SKIPPED, alarmAt).apply();
+            return;
+        }
         long when = alarmAt + p.getInt(K_DELAY, 2) * 60_000L;
         PendingIntent pi = restoreIntent(c);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
