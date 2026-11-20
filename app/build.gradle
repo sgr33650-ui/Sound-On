@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.sgr.volumereveil'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.sgr.volumereveil'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // Clé fixe (incluse dans le dépôt) : les mises à jour s'installent par-dessus sans désinstaller.
+    signingConfigs {
+        fixe {
+            storeFile file('volumereveil.jks')
+            storePassword 'volumereveil'
+            keyAlias 'volumereveil'
+            keyPassword 'volumereveil'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.fixe
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.fixe
+        }
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
