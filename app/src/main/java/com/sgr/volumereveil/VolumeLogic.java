@@ -30,6 +30,9 @@ public final class VolumeLogic {
     static final String K_SKIP_WE = "pasWeekend";
     static final String K_SKIP_FERIE = "pasFeries";
     static final String K_LOG = "journal";
+    static final String K_MEDIA = "volMedia";
+    static final String K_MEDIA_ON = "mediaActif";
+    static final String K_BT_CONNECT = "auBluetooth";
 
     private VolumeLogic() {}
 
@@ -47,6 +50,10 @@ public final class VolumeLogic {
                     .putInt(K_NOTIF, defaultFor(am, AudioManager.STREAM_NOTIFICATION));
         }
         if (!p.contains(K_HOUR)) e.putInt(K_HOUR, 7).putInt(K_MIN, 45);
+        if (!p.contains(K_MEDIA)) {
+            AudioManager am = (AudioManager) c.getSystemService(Context.AUDIO_SERVICE);
+            e.putInt(K_MEDIA, Math.round(am.getStreamMaxVolume(AudioManager.STREAM_MUSIC) * 0.5f));
+        }
         e.apply();
     }
 
@@ -111,6 +118,7 @@ public final class VolumeLogic {
         try {
             if (am.getRingerMode() != AudioManager.RINGER_MODE_NORMAL) {
                 am.setRingerMode(AudioManager.RINGER_MODE_NORMAL);
+                pause(700); // Xiaomi applique le changement de mode avec un léger retard
             }
         } catch (SecurityException e) {
             msg.append("Ne pas déranger bloque le mode sonnerie. ");
@@ -118,6 +126,10 @@ public final class VolumeLogic {
 
         msg.append(setVol(am, AudioManager.STREAM_RING, p.getInt(K_RING, 5), "sonnerie"));
         msg.append(setVol(am, AudioManager.STREAM_NOTIFICATION, p.getInt(K_NOTIF, 5), "notif"));
+        if (p.getBoolean(K_MEDIA_ON, true)) {
+            msg.append(setVol(am, AudioManager.STREAM_MUSIC, p.getInt(K_MEDIA, 8),
+                    bluetoothActif(am) ? "média Bluetooth" : "média"));
+        }
 
         if (nm.getCurrentInterruptionFilter() != NotificationManager.INTERRUPTION_FILTER_ALL) {
             msg.append("(Ne pas déranger encore actif)");
@@ -126,14 +138,41 @@ public final class VolumeLogic {
         return msg.toString().trim();
     }
 
-    private static String setVol(AudioManager am, int stream, int wanted, String label) {
+    /** Règle un volume, vérifie, et réessaie autrement si le téléphone l'a ignoré. */
+    static String setVol(AudioManager am, int stream, int wanted, String label) {
         int v = Math.min(wanted, am.getStreamMaxVolume(stream));
         try {
-            am.setStreamVolume(stream, v, 0);
-            return label + " " + am.getStreamVolume(stream) + ". ";
+            for (int essai = 0; essai < 3 && am.getStreamVolume(stream) != v; essai++) {
+                if (essai == 0) {
+                    am.setStreamVolume(stream, v, AudioManager.FLAG_ALLOW_RINGER_MODES);
+                } else {
+                    // Méthode « bouton volume » cran par cran
+                    int dir = am.getStreamVolume(stream) < v
+                            ? AudioManager.ADJUST_RAISE : AudioManager.ADJUST_LOWER;
+                    for (int i = 0; i < 20 && am.getStreamVolume(stream) != v; i++) {
+                        am.adjustStreamVolume(stream, dir, AudioManager.FLAG_ALLOW_RINGER_MODES);
+                    }
+                }
+                pause(300);
+            }
+            int now = am.getStreamVolume(stream);
+            return label + " " + now + (now == v ? "" : " (voulu " + v + ")") + ". ";
         } catch (SecurityException e) {
-            return label + " bloquée (Ne pas déranger). ";
+            return label + " bloqué (Ne pas déranger). ";
         }
+    }
+
+    static boolean bluetoothActif(AudioManager am) {
+        for (android.media.AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+            int t = d.getType();
+            if (t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                    || t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO) return true;
+        }
+        return false;
+    }
+
+    static void pause(long ms) {
+        try { Thread.sleep(ms); } catch (InterruptedException ignored) {}
     }
 
     /** Journal des derniers événements (8 lignes max), visible dans l'appli. */

@@ -79,6 +79,17 @@ public class MainActivity extends Activity {
                 audio.getStreamMaxVolume(AudioManager.STREAM_RING), 0, "");
         addSlider("Volume notifications", VolumeLogic.K_NOTIF,
                 audio.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION), 0, "");
+        root.addView(checkbox("Remettre aussi le volume média / Bluetooth", VolumeLogic.K_MEDIA_ON));
+        addSlider("Volume média / Bluetooth", VolumeLogic.K_MEDIA,
+                audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0, "");
+        root.addView(checkbox("Si le Bluetooth se connecte plus tard dans la journée, "
+                + "remettre son volume (1 fois par jour)", VolumeLogic.K_BT_CONNECT));
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                && checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.BLUETOOTH_CONNECT}, 1);
+        }
 
         status = text("", 15);
         status.setPadding(0, dp(16), 0, dp(8));
@@ -87,10 +98,16 @@ public class MainActivity extends Activity {
         Button test = new Button(this);
         test.setText("Remettre le volume maintenant (test)");
         test.setOnClickListener(v -> {
-            String r = VolumeLogic.restoreNow(this);
-            VolumeLogic.log(this, "Test manuel : " + r);
-            Toast.makeText(this, r, Toast.LENGTH_LONG).show();
-            refresh();
+            v.setEnabled(false);
+            new Thread(() -> {
+                String r = VolumeLogic.restoreNow(this);
+                VolumeLogic.log(this, "Test manuel : " + r);
+                runOnUiThread(() -> {
+                    Toast.makeText(this, r, Toast.LENGTH_LONG).show();
+                    v.setEnabled(true);
+                    refresh();
+                });
+            }).start();
         });
         root.addView(test);
 
