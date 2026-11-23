@@ -3,6 +3,7 @@ package com.sgr.volumereveil;
 import android.app.Activity;
 import android.app.AlarmManager;
 import android.app.NotificationManager;
+import android.app.TimePickerDialog;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Typeface;
@@ -30,7 +31,7 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs;
     private AudioManager audio;
     private TextView status;
-    private Button btnExact, btnDnd;
+    private Button btnExact, btnDnd, btnTime;
     private LinearLayout root;
 
     @Override
@@ -48,8 +49,8 @@ public class MainActivity extends Activity {
         scroll.addView(root);
         setContentView(scroll);
 
-        TextView intro = text("Après chaque réveil, l'appli remet automatiquement le volume "
-                + "de la sonnerie et des notifications aux niveaux choisis ci-dessous.", 15);
+        TextView intro = text("Chaque matin à l'heure choisie, l'appli remet le volume "
+                + "de la sonnerie et des notifications aux niveaux ci-dessous.", 15);
         root.addView(intro);
 
         Switch sw = new Switch(this);
@@ -63,6 +64,14 @@ public class MainActivity extends Activity {
         });
         root.addView(sw);
 
+        btnTime = new Button(this);
+        btnTime.setTextSize(18);
+        btnTime.setOnClickListener(v -> new TimePickerDialog(this, (tp, h, m) -> {
+            prefs.edit().putInt(VolumeLogic.K_HOUR, h).putInt(VolumeLogic.K_MIN, m).apply();
+            refresh();
+        }, prefs.getInt(VolumeLogic.K_HOUR, 7), prefs.getInt(VolumeLogic.K_MIN, 45), true).show());
+        root.addView(btnTime);
+
         root.addView(checkbox("Pas le week-end (samedi, dimanche)", VolumeLogic.K_SKIP_WE));
         root.addView(checkbox("Pas les jours fériés", VolumeLogic.K_SKIP_FERIE));
 
@@ -70,7 +79,6 @@ public class MainActivity extends Activity {
                 audio.getStreamMaxVolume(AudioManager.STREAM_RING), 0, "");
         addSlider("Volume notifications", VolumeLogic.K_NOTIF,
                 audio.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION), 0, "");
-        addSlider("Délai après le réveil", VolumeLogic.K_DELAY, 30, 0, " min");
 
         status = text("", 15);
         status.setPadding(0, dp(16), 0, dp(8));
@@ -79,7 +87,9 @@ public class MainActivity extends Activity {
         Button test = new Button(this);
         test.setText("Remettre le volume maintenant (test)");
         test.setOnClickListener(v -> {
-            Toast.makeText(this, VolumeLogic.restoreNow(this), Toast.LENGTH_LONG).show();
+            String r = VolumeLogic.restoreNow(this);
+            VolumeLogic.log(this, "Test manuel : " + r);
+            Toast.makeText(this, r, Toast.LENGTH_LONG).show();
             refresh();
         });
         root.addView(test);
@@ -145,24 +155,22 @@ public class MainActivity extends Activity {
     }
 
     private void refresh() {
-        // Re-programmer avec les réglages actuels (délai modifié, activé/désactivé…)
+        // Re-programmer avec les réglages actuels
         VolumeLogic.schedule(this);
 
         AlarmManager am = (AlarmManager) getSystemService(ALARM_SERVICE);
-        AlarmManager.AlarmClockInfo next = am.getNextAlarmClock();
+        btnTime.setText(String.format(Locale.FRANCE, "Heure de remise du volume : %02d:%02d",
+                prefs.getInt(VolumeLogic.K_HOUR, 7), prefs.getInt(VolumeLogic.K_MIN, 45)));
+
         DateFormat f = DateFormat.getDateTimeInstance(DateFormat.FULL, DateFormat.SHORT, Locale.FRANCE);
         StringBuilder sb = new StringBuilder();
-        sb.append("Prochain réveil : ")
-                .append(next == null ? "aucun réveil programmé" : f.format(new Date(next.getTriggerTime())));
         long sched = prefs.getLong(VolumeLogic.K_SCHEDULED, 0);
-        String prevu;
-        if (!prefs.getBoolean(VolumeLogic.K_ENABLED, true)) prevu = "désactivée";
-        else if (sched != 0) prevu = f.format(new Date(sched));
-        else if (prefs.getLong(VolumeLogic.K_SKIPPED, 0) != 0) prevu = "aucune (week-end ou jour férié)";
-        else prevu = "—";
-        sb.append("\nRemise du volume prévue : ").append(prevu);
+        sb.append("Prochaine remise du volume : ")
+                .append(sched == 0 ? "désactivée" : f.format(new Date(sched)));
         long last = prefs.getLong(VolumeLogic.K_LAST, 0);
         sb.append("\nDernière remise : ").append(last == 0 ? "jamais" : f.format(new Date(last)));
+        String journal = prefs.getString(VolumeLogic.K_LOG, "");
+        if (!journal.isEmpty()) sb.append("\n\nJournal :\n").append(journal.trim());
         status.setText(sb.toString());
 
         boolean exactOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms();
